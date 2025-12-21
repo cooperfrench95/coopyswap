@@ -18,3 +18,6 @@ The goal is to create an interface like Uniswap V2.
 * Contract that creates LP and handles withdrawals & deposits to that LP as well as the associated NFTs.
 * Contract representing an LP itself, manages internal LP state and fee collection
 
+## Areas to focus on
+
+* Integer/Fixed point arithmetic (really not sinking in. Need more practice with these zeroes)
