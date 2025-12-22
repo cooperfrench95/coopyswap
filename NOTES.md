@@ -21,3 +21,12 @@ The goal is to create an interface like Uniswap V2.
 ## Areas to focus on
 
 * Integer/Fixed point arithmetic (really not sinking in. Need more practice with these zeroes)
+* Try creating nice helpful representations or abstractions over the math
+
+## Roadmap
+
+* Add withdrawLiquidity function (must hand in NFT and burn it)
+* Add fee support
+* Add unit tests
+* Deploy to testnet
+* Add frontend?
