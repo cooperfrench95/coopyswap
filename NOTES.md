@@ -26,7 +26,7 @@ The goal is to create an interface like Uniswap V2.
 ## Roadmap
 
 * Add withdrawLiquidity function (must hand in NFT and burn it)
-* Add fee support
+* Add fee support (new contract that stores and manages fees)
 * Add unit tests
 * Deploy to testnet
 * Add frontend?

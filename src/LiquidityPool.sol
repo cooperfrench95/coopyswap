@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {ERC721Burnable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract CoopySwapLiquidityPool is ERC721 {
+contract CoopySwapLiquidityPool is ERC721Burnable {
     address token1;
     address token2;
 
@@ -218,7 +219,46 @@ contract CoopySwapLiquidityPool is ERC721 {
             );
     }
 
-    function withdrawLiquidity() public {}
+    function withdrawLiquidity(uint256 tokenId) public {
+        // Look up the NFT metadata
+        LiquidityPosition memory userLiquidityPosition = liquidityProviders[
+            tokenId
+        ];
+        // Ensure user owns this NFT
+        if (
+            ownerOf(tokenId) != msg.sender ||
+            userLiquidityPosition.owner != msg.sender
+        ) {
+            revert BadInput("That's not your NFT buddy");
+        }
+
+        // TODO: Figure out how much we owe the user in fees
+        uint256 token1ReserveOwed = userLiquidityPosition.token1Amount;
+        uint256 token2ReserveOwed = userLiquidityPosition.token2Amount;
+        // Burn the NFT
+        burn(tokenId);
+        // Update our liquidity tracking
+        token1Liquidity -= token1ReserveOwed;
+        token2Liquidity -= token2ReserveOwed;
+        // Remove the struct we have stored
+        delete liquidityProviders[tokenId];
+
+        // Transfer the tokens back to the user
+        IERC20 firstToken = IERC20(token1);
+        IERC20 secondToken = IERC20(token2);
+        performTransfer(
+            address(this),
+            msg.sender,
+            firstToken,
+            token1ReserveOwed
+        );
+        performTransfer(
+            address(this),
+            msg.sender,
+            secondToken,
+            token1ReserveOwed
+        );
+    }
 
     function determineSwapDirection(
         address from,
