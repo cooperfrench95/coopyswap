@@ -51,4 +51,71 @@ function main() {
   console.log(toHumanNum(priceForRequestedUSDCInETH / amountUSDCRequested, ETH_DECIMALS), 'price paid per USDC human format')
 }
 
-main()
+// Scale up, do math, scale final answer back down
+function calcFees() {
+  const swapAmount = getNormalizedInt(1000 * 10 ** ETH_DECIMALS, ETH_DECIMALS)
+  const fee_bps = getNormalizedInt(30, 0)
+  const fee_denoninator = getNormalizedInt(10_000, 0)
+
+  const timesAmount = Math.floor(fee_bps / fee_denoninator)
+
+  console.log(`${swapAmount} * (${fee_bps} / ${fee_denoninator})`)
+  console.log(`${swapAmount} * (${timesAmount})`)
+  return toHumanNum(swapAmount * (fee_bps / fee_denoninator), ETH_DECIMALS)
+}
+
+const getLiquidityValue = (token1Amount, token2Amount, pool) => {
+  if (pool.totalLiquidity === 0) {
+    return Math.sqrt(token1Amount * token2Amount)
+  }
+  return Math.min((token1Amount * pool.totalLiquidity) / pool.token1Balance, (token2Amount * pool.totalLiquidity) / pool.token2Balance)
+}
+
+function deposit(token1Amount, token2Amount, pool) {
+  const liquidity = getLiquidityValue(token1Amount, token2Amount, pool)
+  pool.token1Balance += token1Amount
+  pool.token2Balance += token2Amount
+  const totalLiquidityEntry = pool.totalLiquidity
+  pool.totalLiquidity += liquidity
+
+  return { liquidity, totalLiquidityEntry }
+}
+
+function withdraw(originalPositionLiquidity, pool) {
+  const liquidityEntitlement = originalPositionLiquidity.liquidity / pool.totalLiquidity
+  const token1Amount = liquidityEntitlement * pool.token1Balance;
+  const token2Amount = liquidityEntitlement * pool.token2Balance;
+
+  pool.token1Balance -= token1Amount;
+  pool.token2Balance -= token2Amount;
+  pool.totalLiquidity -= originalPositionLiquidity.liquidity;
+
+  return {
+    token1Amount,
+    token2Amount,
+    liquidityEntitlement,
+  }
+}
+
+function withdrawLiquidity() {
+  const pool = {
+    token1Balance: 0,
+    token2Balance: 0,
+    totalLiquidity: 0,
+  }
+
+
+  console.log(pool)
+  const liquidityPosition = deposit(1, 50, pool)
+  console.log(pool)
+  const lp2 = deposit(2, 100, pool)
+  console.log(pool)
+  const withdrawResult = withdraw(liquidityPosition, pool);
+  console.log(pool)
+  const lp2Withdraw = withdraw(lp2, pool)
+  console.log(pool)
+  console.log(withdrawResult, lp2Withdraw, lp2)
+  console.log(pool)
+}
+
+withdrawLiquidity()

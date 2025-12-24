@@ -26,7 +26,9 @@ The goal is to create an interface like Uniswap V2.
 ## Roadmap
 
 * Add withdrawLiquidity function (must hand in NFT and burn it)
-* Add fee support (new contract that stores and manages fees)
+* Add fee support (new contract that stores and manages fees) - HERE
 * Add unit tests
 * Deploy to testnet
-* Add frontend?
+* Add proxy contract to reduce costs of deploying new pools
+* Gas optimization
+* Add frontend? Reimplement on Solana or some L2?
