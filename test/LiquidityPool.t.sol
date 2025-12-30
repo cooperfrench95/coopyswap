@@ -18,28 +18,17 @@ contract LiquidityPoolTest is Test {
 
     function getExpectedDeployAddress() private view returns (address) {
         bytes memory baseByteCode = type(CoopySwapPoolFeeVault).creationCode;
-        bytes memory pairBytes = abi.encode(
-            address(mockToken1),
-            address(mockToken2)
-        );
-        bytes32 fullInitCodeHash = keccak256(
-            abi.encodePacked(baseByteCode, pairBytes)
-        );
+        bytes memory pairBytes = abi.encode(address(mockToken1), address(mockToken2));
+        bytes32 fullInitCodeHash = keccak256(abi.encodePacked(baseByteCode, pairBytes));
         bytes32 tokenPairHash = keccak256(pairBytes);
-        address expectedCreatedAddress = vm.computeCreate2Address(
-            tokenPairHash,
-            fullInitCodeHash,
-            address(LP)
-        );
+        address expectedCreatedAddress = vm.computeCreate2Address(tokenPairHash, fullInitCodeHash, address(LP));
 
         return expectedCreatedAddress;
     }
 
     function setUp() public {
-        bytes memory bytecode1 = address(new MockERC20("Token 1", "TKN1", 18))
-            .code;
-        bytes memory bytecode2 = address(new MockERC20("Token 2", "TKN2", 6))
-            .code;
+        bytes memory bytecode1 = address(new MockERC20("Token 1", "TKN1", 18)).code;
+        bytes memory bytecode2 = address(new MockERC20("Token 2", "TKN2", 6)).code;
 
         vm.etch(MOCK_TOKEN_ADDRESS_1, bytecode1);
         vm.etch(MOCK_TOKEN_ADDRESS_2, bytecode2);
@@ -47,10 +36,7 @@ contract LiquidityPoolTest is Test {
         mockToken1 = MockERC20(MOCK_TOKEN_ADDRESS_1);
         mockToken2 = MockERC20(MOCK_TOKEN_ADDRESS_2);
 
-        LP = new CoopySwapLiquidityPool(
-            MOCK_TOKEN_ADDRESS_1,
-            MOCK_TOKEN_ADDRESS_2
-        );
+        LP = new CoopySwapLiquidityPool(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2);
     }
 
     // TODO more tests

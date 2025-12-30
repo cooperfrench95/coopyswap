@@ -38,10 +38,8 @@ contract CoopySwapPoolFeeVault {
             revert Unauthorised();
         }
 
-        uint256 feesOwedToken1 = (feeGrowthTrackerFirstToken -
-            feeGrowthEntryPointFirstToken) * liquidityEntitlement;
-        uint256 feesOwedToken2 = (feeGrowthTrackerSecondToken -
-            feeGrowthEntryPointSecondToken) * liquidityEntitlement;
+        uint256 feesOwedToken1 = (feeGrowthTrackerFirstToken - feeGrowthEntryPointFirstToken) * liquidityEntitlement;
+        uint256 feesOwedToken2 = (feeGrowthTrackerSecondToken - feeGrowthEntryPointSecondToken) * liquidityEntitlement;
 
         token1.transferFrom(address(this), userAddress, feesOwedToken1);
         token2.transferFrom(address(this), userAddress, feesOwedToken2);

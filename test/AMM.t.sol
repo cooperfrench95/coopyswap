@@ -18,19 +18,10 @@ contract AMMTest is Test {
 
     function getExpectedDeployAddress() private view returns (address) {
         bytes memory baseByteCode = type(CoopySwapLiquidityPool).creationCode;
-        bytes memory pairBytes = abi.encode(
-            address(mockToken1),
-            address(mockToken2)
-        );
-        bytes32 fullInitCodeHash = keccak256(
-            abi.encodePacked(baseByteCode, pairBytes)
-        );
+        bytes memory pairBytes = abi.encode(address(mockToken1), address(mockToken2));
+        bytes32 fullInitCodeHash = keccak256(abi.encodePacked(baseByteCode, pairBytes));
         bytes32 tokenPairHash = keccak256(pairBytes);
-        address expectedCreatedAddress = vm.computeCreate2Address(
-            tokenPairHash,
-            fullInitCodeHash,
-            address(AMM)
-        );
+        address expectedCreatedAddress = vm.computeCreate2Address(tokenPairHash, fullInitCodeHash, address(AMM));
 
         return expectedCreatedAddress;
     }
@@ -38,10 +29,8 @@ contract AMMTest is Test {
     function setUp() public {
         AMM = new CoopySwapAMMManager();
 
-        bytes memory bytecode1 = address(new MockERC20("Token 1", "TKN1", 18))
-            .code;
-        bytes memory bytecode2 = address(new MockERC20("Token 2", "TKN2", 6))
-            .code;
+        bytes memory bytecode1 = address(new MockERC20("Token 1", "TKN1", 18)).code;
+        bytes memory bytecode2 = address(new MockERC20("Token 2", "TKN2", 6)).code;
 
         vm.etch(MOCK_TOKEN_ADDRESS_1, bytecode1);
         vm.etch(MOCK_TOKEN_ADDRESS_2, bytecode2);
@@ -53,10 +42,7 @@ contract AMMTest is Test {
     function test_initializeLP() public {
         address expectedCreatedAddress = getExpectedDeployAddress();
 
-        address newLP = AMM.initializeLP(
-            address(mockToken1),
-            address(mockToken2)
-        );
+        address newLP = AMM.initializeLP(address(mockToken1), address(mockToken2));
         CoopySwapLiquidityPool newLPInstance = CoopySwapLiquidityPool(newLP);
 
         // Deploys the liquidity pool at the expected CREATE2 address
@@ -67,25 +53,14 @@ contract AMMTest is Test {
     }
 
     function test_pairAlreadyExists() public {
-        address existingLP = AMM.initializeLP(
-            address(mockToken1),
-            address(mockToken2)
-        );
+        address existingLP = AMM.initializeLP(address(mockToken1), address(mockToken2));
         // Mappings of created pairs should be stored in the state
-        assertEq(
-            AMM.existingPairs(address(mockToken1), address(mockToken2)),
-            existingLP
-        );
-        assertEq(
-            AMM.existingPairs(address(mockToken2), address(mockToken1)),
-            existingLP
-        );
+        assertEq(AMM.existingPairs(address(mockToken1), address(mockToken2)), existingLP);
+        assertEq(AMM.existingPairs(address(mockToken2), address(mockToken1)), existingLP);
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CoopySwapAMMManager.PairAlreadyExistsError.selector,
-                "That liquidity pool already exists!",
-                existingLP
+                CoopySwapAMMManager.PairAlreadyExistsError.selector, "That liquidity pool already exists!", existingLP
             )
         );
         // Passing the tokens in original order
@@ -93,9 +68,7 @@ contract AMMTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                CoopySwapAMMManager.PairAlreadyExistsError.selector,
-                "That liquidity pool already exists!",
-                existingLP
+                CoopySwapAMMManager.PairAlreadyExistsError.selector, "That liquidity pool already exists!", existingLP
             )
         );
         // Passing the tokens in reverse order, the error should still be thrown
