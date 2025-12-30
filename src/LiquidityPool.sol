@@ -59,7 +59,13 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         token1Decimals = getDecimals(firstToken);
         token2Decimals = getDecimals(secondToken);
 
-        FeeVault = new CoopySwapPoolFeeVault(token1, token2);
+        bytes memory pairBytes = abi.encode(firstToken, secondToken);
+        bytes32 tokenPairHash = keccak256(pairBytes);
+
+        FeeVault = new CoopySwapPoolFeeVault{salt: tokenPairHash}(
+            token1,
+            token2
+        );
     }
 
     function checkAllowance(

@@ -71,6 +71,15 @@ contract AMMTest is Test {
             address(mockToken1),
             address(mockToken2)
         );
+        // Mappings of created pairs should be stored in the state
+        assertEq(
+            AMM.existingPairs(address(mockToken1), address(mockToken2)),
+            existingLP
+        );
+        assertEq(
+            AMM.existingPairs(address(mockToken2), address(mockToken1)),
+            existingLP
+        );
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -79,7 +88,16 @@ contract AMMTest is Test {
                 existingLP
             )
         );
+        // Passing the tokens in original order
+        AMM.initializeLP(address(mockToken1), address(mockToken2));
 
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CoopySwapAMMManager.PairAlreadyExistsError.selector,
+                "That liquidity pool already exists!",
+                existingLP
+            )
+        );
         // Passing the tokens in reverse order, the error should still be thrown
         AMM.initializeLP(address(mockToken2), address(mockToken1));
     }
