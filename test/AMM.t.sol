@@ -2,7 +2,6 @@
 pragma solidity ^0.8.30;
 
 import {Test} from "forge-std/Test.sol";
-import {console} from "forge-std/console.sol";
 import {CoopySwapAMMManager} from "../src/AMM.sol";
 import {CoopySwapLiquidityPool} from "../src/LiquidityPool.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";

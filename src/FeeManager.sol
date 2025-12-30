@@ -41,7 +41,9 @@ contract CoopySwapPoolFeeVault {
         uint256 feesOwedToken1 = (feeGrowthTrackerFirstToken - feeGrowthEntryPointFirstToken) * liquidityEntitlement;
         uint256 feesOwedToken2 = (feeGrowthTrackerSecondToken - feeGrowthEntryPointSecondToken) * liquidityEntitlement;
 
-        token1.transferFrom(address(this), userAddress, feesOwedToken1);
-        token2.transferFrom(address(this), userAddress, feesOwedToken2);
+        bool success = token1.transferFrom(address(this), userAddress, feesOwedToken1);
+        require(success, "Transfer failed");
+        bool success2 = token2.transferFrom(address(this), userAddress, feesOwedToken2);
+        require(success2, "Transfer failed");
     }
 }
