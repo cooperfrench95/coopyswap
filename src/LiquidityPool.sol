@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
 import {ERC721Burnable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -9,11 +9,11 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {CoopySwapPoolFeeVault} from "./FeeManager.sol";
 
 contract CoopySwapLiquidityPool is ERC721Burnable {
-    address immutable token1;
-    address immutable token2;
+    address public immutable token1;
+    address public immutable token2;
 
-    uint8 token1Decimals = 18;
-    uint8 token2Decimals = 18;
+    uint8 public immutable token1Decimals = 18;
+    uint8 public immutable token2Decimals = 18;
 
     uint256 token1Liquidity = 0;
     uint256 token2Liquidity = 0;
