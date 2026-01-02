@@ -70,7 +70,7 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         }
     }
 
-    function checkBalance(IERC20 token, uint256 amountRequested, address user) private view {
+    function _checkBalance(IERC20 token, uint256 amountRequested, address user) internal view {
         uint256 balance = token.balanceOf(user);
 
         if (balance < amountRequested) {
@@ -78,9 +78,14 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         }
     }
 
-    function performTransfer(address from, address to, IERC20 token, uint256 amount) private {
-        bool success = token.transferFrom(from, to, amount);
-        require(success, "Token transfer failed");
+    function _performTransfer(address from, address to, IERC20 token, uint256 amount) internal {
+        bool transferSuccessful = false;
+        try token.transferFrom(from, to, amount) returns (bool success) {
+            transferSuccessful = success;
+        } catch Panic(uint256) {
+            transferSuccessful = false;
+        }
+        require(transferSuccessful, "Token transfer failed");
     }
 
     function provideLiquidity(uint256 firstTokenAmount, uint256 secondTokenAmount) public {
@@ -96,13 +101,12 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         _checkAllowance(secondToken, secondTokenAmount, msg.sender);
 
         // Confirm user has enough balance
-        checkBalance(firstToken, firstTokenAmount, msg.sender);
-        checkBalance(secondToken, secondTokenAmount, msg.sender);
-
-        uint256 currentPrice = calcPrice(token1Liquidity, token2Liquidity, token1Decimals, token2Decimals);
+        _checkBalance(firstToken, firstTokenAmount, msg.sender);
+        _checkBalance(secondToken, secondTokenAmount, msg.sender);
 
         // Prevent adding wildly unbalanced liquidity if the pool is already established
         if (K > 0) {
+            uint256 currentPrice = calcPrice(token1Liquidity, token2Liquidity, token1Decimals, token2Decimals);
             uint256 userAssumedPrice = calcPrice(firstTokenAmount, secondTokenAmount, token1Decimals, token2Decimals);
 
             uint256 slippage = calcSlippage(currentPrice, userAssumedPrice);
@@ -120,14 +124,14 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         uint256 liquidityPoints = calcLiquidityPoints(firstTokenAmount, secondTokenAmount);
         totalLiquidityPoints += liquidityPoints;
 
-        performTransfer(msg.sender, address(this), firstToken, firstTokenAmount);
-        performTransfer(msg.sender, address(this), secondToken, secondTokenAmount);
+        _performTransfer(msg.sender, address(this), firstToken, firstTokenAmount);
+        _performTransfer(msg.sender, address(this), secondToken, secondTokenAmount);
 
         // Mint liquidity NFT for the user. This will represent their share of the pool
-        mintLiquidityNFT(liquidityPoints, msg.sender);
+        _mintLiquidityNFT(liquidityPoints, msg.sender);
     }
 
-    function mintLiquidityNFT(uint256 liquidityPoints, address to) private {
+    function _mintLiquidityNFT(uint256 liquidityPoints, address to) private {
         LiquidityPosition memory userPosition = LiquidityPosition({
             liquidityPoints: liquidityPoints,
             feeGrowthEntryPointFirstToken: feeGrowthTrackerToken1,
@@ -214,8 +218,8 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         // Transfer the tokens back to the user
         IERC20 firstToken = IERC20(token1);
         IERC20 secondToken = IERC20(token2);
-        performTransfer(address(this), msg.sender, firstToken, token1ReserveOwed);
-        performTransfer(address(this), msg.sender, secondToken, token2ReserveOwed);
+        _performTransfer(address(this), msg.sender, firstToken, token1ReserveOwed);
+        _performTransfer(address(this), msg.sender, secondToken, token2ReserveOwed);
 
         // Give the user their earned fees
         FeeVault.withdrawFeeEntitlement(
@@ -262,7 +266,7 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
             uint256 toTokenLiquidity
         ) = determineSwapDirection(from, to);
         // Check that pool has enough of the token we want to swap
-        checkBalance(toToken, amountDesired, address(this));
+        _checkBalance(toToken, amountDesired, address(this));
         require(fromTokenLiquidity > amountDesired, "Pool does not have enough of that token");
 
         // Calculate the amount of fromToken we'll need from the user
@@ -282,7 +286,7 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         // Check that user has allowed enough of their balance to be used
         _checkAllowance(fromToken, amountFromTokenRequired, msg.sender);
         // Check that user has enough balance
-        checkBalance(fromToken, amountFromTokenRequired, msg.sender);
+        _checkBalance(fromToken, amountFromTokenRequired, msg.sender);
 
         // Finally, sanity check that we are not drifting away from our K value
         uint256 fromTokenLiquidityAfterSwap = fromTokenLiquidity + amountFromTokenRequired;
@@ -307,11 +311,11 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         }
 
         // Execute swap
-        performTransfer(msg.sender, address(this), fromToken, amountFromTokenRequired);
-        performTransfer(address(this), msg.sender, toToken, amountToTokenForUser);
+        _performTransfer(msg.sender, address(this), fromToken, amountFromTokenRequired);
+        _performTransfer(address(this), msg.sender, toToken, amountToTokenForUser);
 
         // Send fees to fee contract
-        performTransfer(address(this), address(FeeVault), toToken, fee);
+        _performTransfer(address(this), address(FeeVault), toToken, fee);
     }
 
     function getDecimals(address token) private view returns (uint8) {
