@@ -6,6 +6,8 @@ import {CoopySwapPoolFeeVault} from "../src/FeeManager.sol";
 import {CoopySwapLiquidityPool} from "../src/LiquidityPool.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
+import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {console} from "forge-std/console.sol";
 
 // Exposes private functions as public for testing purposes
 contract PrivateFunctionHarness is CoopySwapLiquidityPool {
@@ -21,6 +23,15 @@ contract PrivateFunctionHarness is CoopySwapLiquidityPool {
 
     function public_performTransfer(address from, address to, IERC20 token, uint256 amount) public {
         _performTransfer(from, to, token, amount);
+    }
+
+    function public_calcPrice(
+        uint256 tokenALiquidity,
+        uint256 tokenBLiquidity,
+        uint8 tokenADecimals,
+        uint8 tokenBDecimals
+    ) public returns (uint256) {
+        return _calcPrice(tokenALiquidity, tokenBLiquidity, tokenADecimals, tokenBDecimals);
     }
 }
 
@@ -72,8 +83,8 @@ contract LiquidityPoolTest is Test {
         return expectedCreatedAddress;
     }
 
-    function addLiquidity(uint8 token1Amount, uint8 token2Amount) private {
-        GrantUserTestTokensResponse memory testData = giveUserTokens(token1Amount, token2Amount, "user");
+    function addLiquidity(uint256 token1Amount, uint256 token2Amount, string memory userAddressName) private {
+        GrantUserTestTokensResponse memory testData = giveUserTokens(token1Amount, token2Amount, userAddressName);
         vm.prank(testData.userAddress);
         LP.provideLiquidity(testData.amountGrantedToken1, testData.amountGrantedToken2);
     }
@@ -192,7 +203,7 @@ contract LiquidityPoolTest is Test {
 
     function test_provideLiquidity_slippageTooHigh() public {
         // Provide initial liquidity
-        addLiquidity(200, 200);
+        addLiquidity(200, 200, "user");
 
         // Should revert due to high slippage (0.5%)
         GrantUserTestTokensResponse memory testData2 = giveUserTokens(200, 198, "user");
@@ -203,12 +214,79 @@ contract LiquidityPoolTest is Test {
 
     function test_provideLiquidity_subsequentLiquidity() public {
         // Provide initial liquidity
-        addLiquidity(200, 200);
+        addLiquidity(200, 200, "user");
 
         // Should NOT revert due to high slippage, as it uses a price very close to the current one
         GrantUserTestTokensResponse memory testData = giveUserTokens(200, 199, "user2");
         vm.prank(testData.userAddress);
         LP.provideLiquidity(testData.amountGrantedToken1, testData.amountGrantedToken2);
+    }
+
+    function test_calcPrice() public {
+        // // Pretend our 18-zeroes token 1 is ETH
+        // // Pretend our 6-zeroes token 2 is USDC
+        // // Current ETH price in USDC: $3089.70
+
+        uint256 tokenALiquidity = 10 * 10 ** MOCK_TOKEN_1_DECIMALS;
+        uint256 tokenBLiquidity = 30897 * 10 ** MOCK_TOKEN_2_DECIMALS;
+        uint8 tokenADecimals = MOCK_TOKEN_1_DECIMALS;
+        uint8 tokenBDecimals = MOCK_TOKEN_2_DECIMALS;
+
+        uint256 price = LP.public_calcPrice(tokenALiquidity, tokenBLiquidity, tokenADecimals, tokenBDecimals);
+        uint256 priceInReverse = LP.public_calcPrice(tokenBLiquidity, tokenALiquidity, tokenBDecimals, tokenADecimals);
+
+        assertEq(price, 3089700000); // Exactly 3089.70 USDC
+        assertEq(priceInReverse, 323656018383661 wei); // 0.000323656018383661 ETH
+    }
+
+    function testFuzz_calcPrice_USDCperETH(uint8 usdcPerEth) public {
+        // // Pretend our 18-zeroes token 1 is ETH
+        // // Pretend our 6-zeroes token 2 is USDC
+        // // Current ETH price in USDC: $3089.70
+        vm.assume(usdcPerEth != 0);
+
+        uint256 tokenALiquidity = 1 * 10 ** MOCK_TOKEN_1_DECIMALS;
+        uint256 tokenBLiquidity = usdcPerEth * 10 ** MOCK_TOKEN_2_DECIMALS;
+        uint8 tokenADecimals = MOCK_TOKEN_1_DECIMALS;
+        uint8 tokenBDecimals = MOCK_TOKEN_2_DECIMALS;
+
+        uint256 price = LP.public_calcPrice(tokenALiquidity, tokenBLiquidity, tokenADecimals, tokenBDecimals);
+        uint256 priceInReverse = LP.public_calcPrice(tokenBLiquidity, tokenALiquidity, tokenBDecimals, tokenADecimals);
+
+        assertEq(price, usdcPerEth * 1 * 10 ** MOCK_TOKEN_2_DECIMALS);
+    }
+
+    function test_swap() public {
+        // Pretend our 18-zeroes token 1 is ETH
+        // Pretend our 6-zeroes token 2 is USDC
+        // Current ETH price in USDC: $3089.70
+
+        uint256 startingETHBalance = 2 ether;
+        uint256 startingUSDCBalance = 0;
+        uint256 amountUSDCRequested = 3089 * 10 ** MOCK_TOKEN_2_DECIMALS;
+        uint256 expectedFee = 9267000 wei;
+        uint256 expectedAmountOut = amountUSDCRequested - expectedFee;
+        uint256 expectedEthPrice = 2 ether - 1000773988040605051;
+
+        // Set price in the pool to 3089.70
+        for (uint256 i = 0; i < 300; i++) {
+            addLiquidity(1, 3089, string.concat("user", Strings.toString(i)));
+        }
+        for (uint256 i = 300; i < 1000; i++) {
+            addLiquidity(1, 3090, string.concat("user", Strings.toString(i)));
+        }
+
+        // User has 1 ETH and 0 USDC to start
+        GrantUserTestTokensResponse memory testData = giveUserTokens(2, 0, "user");
+
+        // Asking LP for 3089 USDC
+        vm.prank(testData.userAddress);
+        LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, 3089 * (1 * 10 ** MOCK_TOKEN_2_DECIMALS));
+
+        // Check that user received USDC and LP received ETH
+        assertEq(expectedAmountOut, mockToken2.balanceOf(testData.userAddress));
+        assertEq(expectedEthPrice, mockToken1.balanceOf(testData.userAddress));
+        assertEq(expectedFee, mockToken2.balanceOf(address(LP.FeeVault())));
     }
     // TODO more tests
 }

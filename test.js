@@ -118,4 +118,55 @@ function withdrawLiquidity() {
   console.log(pool)
 }
 
-withdrawLiquidity()
+function calcPrice(
+  tokenALiquidity,
+  tokenBLiquidity,
+  tokenADecimals,
+  tokenBDecimals
+) {
+  const aNormalized = getNormalizedInt(tokenALiquidity, tokenADecimals)
+  const bNormalized = getNormalizedInt(tokenBLiquidity, tokenBDecimals)
+
+  return Math.floor((bNormalized * 10 ** tokenADecimals) / aNormalized)
+}
+
+function testCalcPriceMath() {
+  const tokenADecimals = 18
+  const tokenBDecimals = 6
+  const tokenALiquidity = 10 * 10 ** tokenADecimals
+  const tokenBLiquidity = 30897 * 10 ** tokenBDecimals
+
+  const price = calcPrice(
+    tokenALiquidity,
+    tokenBLiquidity,
+    tokenADecimals,
+    tokenBDecimals
+  )
+
+  const priceHumanized = price / (1 * 10 ** tokenADecimals)
+  console.log(priceHumanized, "price in USDC for each ETH")
+
+  const priceInReverse = calcPrice(
+    tokenBLiquidity,
+    tokenALiquidity,
+    tokenBDecimals,
+    tokenADecimals
+  )
+
+  const priceInReverseHumanized = priceInReverse / (1 * 10 ** tokenBDecimals);
+
+  console.log(priceInReverseHumanized.toFixed(100), "price in ETH for each USDC")
+  console.log(priceInReverseHumanized * priceHumanized, "this should be 1")
+
+  console.log(price.toLocaleString(), "raw price in USDC for each ETH")
+  console.log(priceInReverse, "raw price in ETH for each USDC")
+
+  console.log('1 USDC', 1 * 10 ** 6)
+  console.log('3089.7 USDC', 3089.7 * 10 ** 6)
+
+  console.log('1 ETH', 1 * 10 ** 18)
+  console.log('323 wei', 0.000323 * 10 ** 18)
+  console.log('a/b', (1 * 10 ** 18) / (0.000323 * 10 ** 18))
+}
+
+testCalcPriceMath()

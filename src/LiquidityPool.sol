@@ -80,10 +80,19 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
 
     function _performTransfer(address from, address to, IERC20 token, uint256 amount) internal {
         bool transferSuccessful = false;
-        try token.transferFrom(from, to, amount) returns (bool success) {
-            transferSuccessful = success;
-        } catch Panic(uint256) {
-            transferSuccessful = false;
+
+        if (from == address(this)) {
+            try token.transfer(to, amount) returns (bool success) {
+                transferSuccessful = success;
+            } catch Panic(uint256) {
+                transferSuccessful = false;
+            }
+        } else {
+            try token.transferFrom(from, to, amount) returns (bool success) {
+                transferSuccessful = success;
+            } catch Panic(uint256) {
+                transferSuccessful = false;
+            }
         }
         require(transferSuccessful, "Token transfer failed");
     }
@@ -106,16 +115,14 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
 
         // Prevent adding wildly unbalanced liquidity if the pool is already established
         if (K > 0) {
-            uint256 currentPrice = calcPrice(token1Liquidity, token2Liquidity, token1Decimals, token2Decimals);
-            uint256 userAssumedPrice = calcPrice(firstTokenAmount, secondTokenAmount, token1Decimals, token2Decimals);
+            uint256 currentPrice = _calcPrice(token1Liquidity, token2Liquidity, token1Decimals, token2Decimals);
+            uint256 userAssumedPrice = _calcPrice(firstTokenAmount, secondTokenAmount, token1Decimals, token2Decimals);
 
             uint256 slippage = calcSlippage(currentPrice, userAssumedPrice);
 
             if (slippage > MAX_SLIPPAGE_BPS) {
                 revert SlippageTooHigh();
             }
-        } else {
-            K = firstTokenAmount * secondTokenAmount;
         }
 
         // Update internal balance trackers and receive actual liquidity
@@ -129,6 +136,9 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
 
         // Mint liquidity NFT for the user. This will represent their share of the pool
         _mintLiquidityNFT(liquidityPoints, msg.sender);
+
+        // Set new K
+        K = Math.sqrt(token1Liquidity * token2Liquidity);
     }
 
     function _mintLiquidityNFT(uint256 liquidityPoints, address to) private {
@@ -174,24 +184,27 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
     }
 
     // Return the price of token A in terms of units of token B.
-    function calcPrice(uint256 tokenALiquidity, uint256 tokenBLiquidity, uint8 tokenADecimals, uint8 tokenBDecimals)
-        private
+    function _calcPrice(uint256 tokenALiquidity, uint256 tokenBLiquidity, uint8 tokenADecimals, uint8 tokenBDecimals)
+        internal
         pure
         returns (uint256)
     {
         uint256 normalisedToken1Balance = getNormalizedInt(tokenALiquidity, tokenADecimals);
         uint256 normalisedToken2Balance = getNormalizedInt(tokenBLiquidity, tokenBDecimals);
 
-        // This does: (normalisedToken1Balance * 10**SCALE_ZEROES) / normalisedToken2Balance
-        return Math.mulDiv(normalisedToken1Balance, 10 ** (SCALE_ZEROES), normalisedToken2Balance);
+        // This does: (normalisedToken2Balance * 10**SCALE_ZEROES) / normalisedToken1Balance
+        uint256 scaledResult = Math.mulDiv(normalisedToken2Balance, 1 * 10 ** (SCALE_ZEROES), normalisedToken1Balance);
+
+        if (tokenBDecimals > SCALE_ZEROES) {
+            return scaledResult / (1 * 10 ** (tokenBDecimals - SCALE_ZEROES));
+        } else if (tokenBDecimals < SCALE_ZEROES) {
+            return scaledResult / (1 * 10 ** (SCALE_ZEROES - tokenBDecimals));
+        }
+        return scaledResult;
     }
 
-    function calcFees(uint8 tokenDecimals, uint256 amount) private pure returns (uint256) {
-        uint256 scaledSwapAmount = getNormalizedInt(amount, tokenDecimals);
-        uint256 scaledFeeBPS = getNormalizedInt(FEE_BPS, 0);
-        uint256 scaledFeeDenominator = getNormalizedInt(SCALE_ZEROES, 0);
-
-        return (scaledSwapAmount * (scaledFeeBPS / scaledFeeDenominator)) / 10 ** SCALE_ZEROES;
+    function calcFees(uint256 amount) private pure returns (uint256) {
+        return (amount * FEE_BPS) / BPS_DENOMINATOR;
     }
 
     function withdrawLiquidity(uint256 tokenId) public {
@@ -276,10 +289,10 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         // Price calculation: pool ETH liquidity / pool USDC liquidity = 2 / 50 = 0.04
         // Amount needed calculation: Price * amount requested = 25 * 0.04 = 1 ETH
         uint256 currentToTokenPrice =
-            calcPrice(fromTokenLiquidity, toTokenLiquidity, fromTokenDecimals, toTokenDecimals);
+            _calcPrice(fromTokenLiquidity, toTokenLiquidity, fromTokenDecimals, toTokenDecimals);
 
-        uint256 amountFromTokenRequired = (amountDesired * currentToTokenPrice);
-        uint256 fee = calcFees(toTokenDecimals, amountDesired);
+        uint256 amountFromTokenRequired = (fromTokenLiquidity * amountDesired) / (toTokenLiquidity - amountDesired);
+        uint256 fee = calcFees(amountDesired);
         uint256 amountToTokenForUser = amountDesired - fee;
         uint256 totalToTokenLiquidityDrop = amountToTokenForUser + fee;
 
@@ -291,7 +304,7 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         // Finally, sanity check that we are not drifting away from our K value
         uint256 fromTokenLiquidityAfterSwap = fromTokenLiquidity + amountFromTokenRequired;
         uint256 toTokenLiquidityAfterSwap = toTokenLiquidity - totalToTokenLiquidityDrop;
-        uint256 newK = fromTokenLiquidityAfterSwap * toTokenLiquidityAfterSwap;
+        uint256 newK = Math.sqrt(fromTokenLiquidityAfterSwap * toTokenLiquidityAfterSwap);
 
         uint256 kDiff = newK > K ? newK - K : K - newK;
         if (Math.mulDiv(kDiff, BPS_DENOMINATOR, K) > MAX_SLIPPAGE_BPS) {
