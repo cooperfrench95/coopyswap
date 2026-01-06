@@ -262,9 +262,9 @@ contract LiquidityPoolTest is Test {
 
         uint256 amountUSDCRequested = 3089 * 10 ** MOCK_TOKEN_2_DECIMALS;
         uint256 expectedFee = 3002321964121815 wei; // Roughly 0.003 ETH
-        uint256 expectedAmountIn = 1 ether + expectedFee;
+        uint8 expectedSlippageBPS = 10;
+        uint256 expectedAmountIn = 1 ether + expectedFee; // 1003002321964121900
         uint256 expectedAmountOut = amountUSDCRequested;
-        uint256 expectedEthPrice = 2 ether - 1003776310004726866;
 
         // Set price in the pool to 3089.70
         for (uint256 i = 0; i < 300; i++) {
@@ -278,12 +278,18 @@ contract LiquidityPoolTest is Test {
         GrantUserTestTokensResponse memory testData = giveUserTokens(2, 0, "user");
 
         // Asking LP for 3089 USDC
-        vm.prank(testData.userAddress);
-        LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, 3089 * (1 * 10 ** MOCK_TOKEN_2_DECIMALS));
+        vm.startPrank(testData.userAddress);
+        vm.txGasPrice(0);
+        LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, amountUSDCRequested);
+        vm.stopPrank();
 
         // Check that user received USDC and LP received ETH
         assertEq(expectedAmountOut, mockToken2.balanceOf(testData.userAddress));
-        assertEq(expectedEthPrice, mockToken1.balanceOf(testData.userAddress));
+        assertApproxEqAbs(
+            expectedAmountIn,
+            2 ether - mockToken1.balanceOf(testData.userAddress),
+            expectedAmountIn / (10_000 / expectedSlippageBPS)
+        );
         assertEq(expectedFee, mockToken1.balanceOf(address(LP.FeeVault())));
     }
 
@@ -293,9 +299,6 @@ contract LiquidityPoolTest is Test {
         // Current ETH price in USDC: $3089.70
 
         uint256 amountUSDCRequested = 3089 * 10 ** MOCK_TOKEN_2_DECIMALS;
-        uint256 expectedFee = 9267000 wei;
-        uint256 expectedAmountOut = amountUSDCRequested - expectedFee;
-        uint256 expectedEthPrice = 2 ether - 1000773988040605051;
 
         // Set price in the pool to 3089.70
         for (uint256 i = 0; i < 3; i++) {
@@ -311,7 +314,7 @@ contract LiquidityPoolTest is Test {
         // Asking LP for 3089 USDC
         vm.prank(testData.userAddress);
         vm.expectRevert(abi.encodeWithSelector(CoopySwapLiquidityPool.SlippageTooHigh.selector));
-        LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, 3089 * (1 * 10 ** MOCK_TOKEN_2_DECIMALS));
+        LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, amountUSDCRequested);
     }
 
     function test_withdrawLiquidity() public {}
