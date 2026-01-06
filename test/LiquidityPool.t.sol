@@ -30,7 +30,7 @@ contract PrivateFunctionHarness is CoopySwapLiquidityPool {
         uint256 tokenBLiquidity,
         uint8 tokenADecimals,
         uint8 tokenBDecimals
-    ) public returns (uint256) {
+    ) public pure returns (uint256) {
         return _calcPrice(tokenALiquidity, tokenBLiquidity, tokenADecimals, tokenBDecimals);
     }
 }
@@ -222,7 +222,7 @@ contract LiquidityPoolTest is Test {
         LP.provideLiquidity(testData.amountGrantedToken1, testData.amountGrantedToken2);
     }
 
-    function test_calcPrice() public {
+    function test_calcPrice() public view {
         // // Pretend our 18-zeroes token 1 is ETH
         // // Pretend our 6-zeroes token 2 is USDC
         // // Current ETH price in USDC: $3089.70
@@ -239,7 +239,7 @@ contract LiquidityPoolTest is Test {
         assertEq(priceInReverse, 323656018383661 wei); // 0.000323656018383661 ETH
     }
 
-    function testFuzz_calcPrice_USDCperETH(uint8 usdcPerEth) public {
+    function testFuzz_calcPrice_USDCperETH(uint8 usdcPerEth) public view {
         // // Pretend our 18-zeroes token 1 is ETH
         // // Pretend our 6-zeroes token 2 is USDC
         // // Current ETH price in USDC: $3089.70
@@ -251,7 +251,6 @@ contract LiquidityPoolTest is Test {
         uint8 tokenBDecimals = MOCK_TOKEN_2_DECIMALS;
 
         uint256 price = LP.public_calcPrice(tokenALiquidity, tokenBLiquidity, tokenADecimals, tokenBDecimals);
-        uint256 priceInReverse = LP.public_calcPrice(tokenBLiquidity, tokenALiquidity, tokenBDecimals, tokenADecimals);
 
         assertEq(price, usdcPerEth * 1 * 10 ** MOCK_TOKEN_2_DECIMALS);
     }
@@ -261,12 +260,11 @@ contract LiquidityPoolTest is Test {
         // Pretend our 6-zeroes token 2 is USDC
         // Current ETH price in USDC: $3089.70
 
-        uint256 startingETHBalance = 2 ether;
-        uint256 startingUSDCBalance = 0;
         uint256 amountUSDCRequested = 3089 * 10 ** MOCK_TOKEN_2_DECIMALS;
-        uint256 expectedFee = 9267000 wei;
-        uint256 expectedAmountOut = amountUSDCRequested - expectedFee;
-        uint256 expectedEthPrice = 2 ether - 1000773988040605051;
+        uint256 expectedFee = 3002321964121815 wei; // Roughly 0.003 ETH
+        uint256 expectedAmountIn = 1 ether + expectedFee;
+        uint256 expectedAmountOut = amountUSDCRequested;
+        uint256 expectedEthPrice = 2 ether - 1003776310004726866;
 
         // Set price in the pool to 3089.70
         for (uint256 i = 0; i < 300; i++) {
@@ -286,7 +284,37 @@ contract LiquidityPoolTest is Test {
         // Check that user received USDC and LP received ETH
         assertEq(expectedAmountOut, mockToken2.balanceOf(testData.userAddress));
         assertEq(expectedEthPrice, mockToken1.balanceOf(testData.userAddress));
-        assertEq(expectedFee, mockToken2.balanceOf(address(LP.FeeVault())));
+        assertEq(expectedFee, mockToken1.balanceOf(address(LP.FeeVault())));
     }
+
+    function test_swap_slippageTooHigh() public {
+        // Pretend our 18-zeroes token 1 is ETH
+        // Pretend our 6-zeroes token 2 is USDC
+        // Current ETH price in USDC: $3089.70
+
+        uint256 amountUSDCRequested = 3089 * 10 ** MOCK_TOKEN_2_DECIMALS;
+        uint256 expectedFee = 9267000 wei;
+        uint256 expectedAmountOut = amountUSDCRequested - expectedFee;
+        uint256 expectedEthPrice = 2 ether - 1000773988040605051;
+
+        // Set price in the pool to 3089.70
+        for (uint256 i = 0; i < 3; i++) {
+            addLiquidity(1, 3089, string.concat("user", Strings.toString(i)));
+        }
+        for (uint256 i = 3; i < 10; i++) {
+            addLiquidity(1, 3090, string.concat("user", Strings.toString(i)));
+        }
+
+        // User has 1 ETH and 0 USDC to start
+        GrantUserTestTokensResponse memory testData = giveUserTokens(2, 0, "user");
+
+        // Asking LP for 3089 USDC
+        vm.prank(testData.userAddress);
+        vm.expectRevert(abi.encodeWithSelector(CoopySwapLiquidityPool.SlippageTooHigh.selector));
+        LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, 3089 * (1 * 10 ** MOCK_TOKEN_2_DECIMALS));
+    }
+
+    function test_withdrawLiquidity() public {}
+
     // TODO more tests
 }

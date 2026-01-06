@@ -282,53 +282,49 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         _checkBalance(toToken, amountDesired, address(this));
         require(fromTokenLiquidity > amountDesired, "Pool does not have enough of that token");
 
-        // Calculate the amount of fromToken we'll need from the user
-        // Example: Pool has 2 ETH, 50 USDC
-        // User wants to swap ETH for 25 USDC
-        // They pass: from=ETH, to=USDC, amount=25
-        // Price calculation: pool ETH liquidity / pool USDC liquidity = 2 / 50 = 0.04
-        // Amount needed calculation: Price * amount requested = 25 * 0.04 = 1 ETH
-        uint256 currentToTokenPrice =
-            _calcPrice(fromTokenLiquidity, toTokenLiquidity, fromTokenDecimals, toTokenDecimals);
-
+        // Calculating the amount of the "from" token we need from the user
+        // This takes into account the current liquidity in the pool
         uint256 amountFromTokenRequired = (fromTokenLiquidity * amountDesired) / (toTokenLiquidity - amountDesired);
-        uint256 fee = calcFees(amountDesired);
-        uint256 amountToTokenForUser = amountDesired - fee;
-        uint256 totalToTokenLiquidityDrop = amountToTokenForUser + fee;
+        uint256 fee = calcFees(amountFromTokenRequired);
+        uint256 totalFromTokenNeededFromUser = amountFromTokenRequired + fee;
 
         // Check that user has allowed enough of their balance to be used
-        _checkAllowance(fromToken, amountFromTokenRequired, msg.sender);
+        _checkAllowance(fromToken, totalFromTokenNeededFromUser, msg.sender);
         // Check that user has enough balance
-        _checkBalance(fromToken, amountFromTokenRequired, msg.sender);
+        _checkBalance(fromToken, totalFromTokenNeededFromUser, msg.sender);
 
-        // Finally, sanity check that we are not drifting away from our K value
-        uint256 fromTokenLiquidityAfterSwap = fromTokenLiquidity + amountFromTokenRequired;
-        uint256 toTokenLiquidityAfterSwap = toTokenLiquidity - totalToTokenLiquidityDrop;
-        uint256 newK = Math.sqrt(fromTokenLiquidityAfterSwap * toTokenLiquidityAfterSwap);
-
-        uint256 kDiff = newK > K ? newK - K : K - newK;
-        if (Math.mulDiv(kDiff, BPS_DENOMINATOR, K) > MAX_SLIPPAGE_BPS) {
+        // Sanity check for slippage
+        uint256 currentFromTokenPrice =
+            _calcPrice(toTokenLiquidity, fromTokenLiquidity, toTokenDecimals, fromTokenDecimals);
+        uint256 userAssumedFromTokenPrice = _calcPrice(
+            amountDesired,
+            amountFromTokenRequired, // Excluding fees from slippage calc
+            toTokenDecimals,
+            fromTokenDecimals
+        );
+        uint256 slippage = calcSlippage(currentFromTokenPrice, userAssumedFromTokenPrice);
+        if (slippage > MAX_SLIPPAGE_BPS) {
             revert SlippageTooHigh();
         }
 
         // Update liquidity
         if (from == token1) {
             token1Liquidity += amountFromTokenRequired;
-            token2Liquidity -= totalToTokenLiquidityDrop;
-            // Fees always taken from "to" token
-            feeGrowthTrackerToken2 += fee / totalLiquidityPoints;
+            token2Liquidity -= amountDesired;
+            // Fees always taken from "from" token
+            feeGrowthTrackerToken1 += fee / totalLiquidityPoints;
         } else {
             token2Liquidity += amountFromTokenRequired;
-            token1Liquidity -= totalToTokenLiquidityDrop;
-            feeGrowthTrackerToken1 += fee / totalLiquidityPoints;
+            token1Liquidity -= amountDesired;
+            feeGrowthTrackerToken2 += fee / totalLiquidityPoints;
         }
 
         // Execute swap
-        _performTransfer(msg.sender, address(this), fromToken, amountFromTokenRequired);
-        _performTransfer(address(this), msg.sender, toToken, amountToTokenForUser);
+        _performTransfer(msg.sender, address(this), fromToken, totalFromTokenNeededFromUser);
+        _performTransfer(address(this), msg.sender, toToken, amountDesired);
 
         // Send fees to fee contract
-        _performTransfer(address(this), address(FeeVault), toToken, fee);
+        _performTransfer(address(this), address(FeeVault), fromToken, fee);
     }
 
     function getDecimals(address token) private view returns (uint8) {
