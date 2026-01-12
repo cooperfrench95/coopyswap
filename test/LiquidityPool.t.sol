@@ -8,6 +8,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {console} from "forge-std/console.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {IERC721Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 // Exposes private functions as public for testing purposes
 contract PrivateFunctionHarness is CoopySwapLiquidityPool {
@@ -195,10 +197,11 @@ contract LiquidityPoolTest is Test {
         GrantUserTestTokensResponse memory testData = giveUserTokens(2, 2, "user");
 
         vm.prank(testData.userAddress);
-        LP.provideLiquidity(testData.amountGrantedToken1, testData.amountGrantedToken2);
+        uint256 nftId = LP.provideLiquidity(testData.amountGrantedToken1, testData.amountGrantedToken2);
 
         // Assert liquidity NFT minted
         assertEq(LP.balanceOf(testData.userAddress), 1);
+        assertEq(LP.ownerOf(nftId), testData.userAddress);
     }
 
     function test_provideLiquidity_slippageTooHigh() public {
@@ -261,7 +264,7 @@ contract LiquidityPoolTest is Test {
         // Current ETH price in USDC: $3089.70
 
         uint256 amountUSDCRequested = 3089 * 10 ** MOCK_TOKEN_2_DECIMALS;
-        uint256 expectedFee = 3002321964121815 wei; // Roughly 0.003 ETH
+        uint256 expectedFee = 3011356032218470 wei; // Roughly 0.003 ETH
         uint8 expectedSlippageBPS = 10;
         uint256 expectedAmountIn = 1 ether + expectedFee; // 1003002321964121900
         uint256 expectedAmountOut = amountUSDCRequested;
@@ -290,7 +293,11 @@ contract LiquidityPoolTest is Test {
             2 ether - mockToken1.balanceOf(testData.userAddress),
             expectedAmountIn / (10_000 / expectedSlippageBPS)
         );
-        assertEq(expectedFee, mockToken1.balanceOf(address(LP.FeeVault())));
+        assertApproxEqAbs(
+            expectedFee,
+            mockToken1.balanceOf(address(LP.FeeVault())),
+            1 // Rounding sometimes adds an extra wei in there
+        );
     }
 
     function test_swap_slippageTooHigh() public {
@@ -317,7 +324,65 @@ contract LiquidityPoolTest is Test {
         LP.swap(MOCK_TOKEN_ADDRESS_1, MOCK_TOKEN_ADDRESS_2, amountUSDCRequested);
     }
 
-    function test_withdrawLiquidity() public {}
+    function test_withdrawLiquidity() public {
+        uint256 initialBalanceToken1 = 1 ether;
+        uint256 initialBalanceToken2 = 3090e6;
+        uint256 expectedFeesToken1 = (initialBalanceToken1 * 15) / 10_000; // 0.15%
+        uint256 expectedFeesToken2 = (initialBalanceToken2 * 15) / 10_000; // 0.15%
+        uint256 expectedBalanceToken1 = initialBalanceToken1 + expectedFeesToken1;
+        uint256 expectedBalanceToken2 = initialBalanceToken2 + expectedFeesToken2;
+        uint256 acceptableSlippageBPS = 20;
 
-    // TODO more tests
+        // Add liquidity 1000 times
+        // Add our liquidity - we own 1/1000th of the pool now
+        // Do 1000 swaps
+        // Since we own 1/1000th of the pool, and there are 1000 swaps, we are entitled to half the full fee of 1 swap per token
+        // This means we should get roughly 0.15% of 3090 USDC and roughly 0.15% of 1 ETH
+        // 0.15% of 1 ETH = 1500000000000000 wei
+        // 0.15% of 3090 USDC = 1500
+
+        // Add existing liquidity
+        for (uint256 i = 0; i < 999; i++) {
+            vm.txGasPrice(0);
+            addLiquidity(1, 3090, string.concat("user", Strings.toString(i)));
+        }
+
+        // Our user adds liquidity
+        GrantUserTestTokensResponse memory testData = giveUserTokens(1, 3090, "user");
+        vm.prank(testData.userAddress);
+        uint256 nftId = LP.provideLiquidity(testData.amountGrantedToken1, testData.amountGrantedToken2);
+
+        // Do some swaps
+        for (uint256 i = 0; i < 1000; i++) {
+            GrantUserTestTokensResponse memory newUserData =
+                giveUserTokens(2, 4000, string.concat("user", Strings.toString(i + 1000)));
+            vm.prank(newUserData.userAddress);
+            LP.swap(
+                i % 2 == 0 ? MOCK_TOKEN_ADDRESS_1 : MOCK_TOKEN_ADDRESS_2,
+                i % 2 == 0 ? MOCK_TOKEN_ADDRESS_2 : MOCK_TOKEN_ADDRESS_1,
+                (i % 2 == 0 ? 3090 : 1) * 10 ** (i % 2 == 0 ? MOCK_TOKEN_2_DECIMALS : MOCK_TOKEN_1_DECIMALS)
+            );
+        }
+
+        // Withdraw liquidity
+        vm.prank(testData.userAddress);
+        LP.withdrawLiquidity(nftId);
+
+        // Check NFT is burned
+        assertEq(LP.balanceOf(testData.userAddress), 0);
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, nftId));
+        assertEq(LP.ownerOf(nftId), address(0));
+
+        // Check we received fees
+        assertApproxEqAbs(
+            IERC20(MOCK_TOKEN_ADDRESS_1).balanceOf(testData.userAddress),
+            expectedBalanceToken1,
+            expectedBalanceToken1 / (10_000 / acceptableSlippageBPS)
+        );
+        assertApproxEqAbs(
+            IERC20(MOCK_TOKEN_ADDRESS_2).balanceOf(testData.userAddress),
+            expectedBalanceToken2,
+            expectedBalanceToken2 / (10_000 / acceptableSlippageBPS)
+        );
+    }
 }

@@ -64,7 +64,6 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
 
     function _checkAllowance(IERC20 token, uint256 amountRequested, address user) internal view {
         uint256 allowance = token.allowance(user, address(this));
-
         if (allowance < amountRequested) {
             revert InsufficientAllowance("You have not approved a sufficiently large allowance");
         }
@@ -97,7 +96,7 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         require(transferSuccessful, "Token transfer failed");
     }
 
-    function provideLiquidity(uint256 firstTokenAmount, uint256 secondTokenAmount) public {
+    function provideLiquidity(uint256 firstTokenAmount, uint256 secondTokenAmount) public returns (uint256) {
         if (firstTokenAmount == 0 || secondTokenAmount == 0) {
             revert BadInput("You can't provide zero liquidity");
         }
@@ -139,6 +138,8 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
 
         // Set new K
         K = Math.sqrt(token1Liquidity * token2Liquidity);
+
+        return lastMintedID;
     }
 
     function _mintLiquidityNFT(uint256 liquidityPoints, address to) private {
@@ -204,7 +205,7 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
     }
 
     function calcFees(uint256 amount) private pure returns (uint256) {
-        return (amount * FEE_BPS) / BPS_DENOMINATOR;
+        return Math.ceilDiv(amount * FEE_BPS, BPS_DENOMINATOR);
     }
 
     function withdrawLiquidity(uint256 tokenId) public {
@@ -215,9 +216,10 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
             revert BadInput("That's not your NFT buddy");
         }
 
-        uint256 liquidityEntitlement = userLiquidityPosition.liquidityPoints / totalLiquidityPoints;
-        uint256 token1ReserveOwed = liquidityEntitlement * token1Liquidity;
-        uint256 token2ReserveOwed = liquidityEntitlement * token2Liquidity;
+        uint256 token1ReserveOwed =
+            Math.mulDiv(userLiquidityPosition.liquidityPoints, token1Liquidity, totalLiquidityPoints);
+        uint256 token2ReserveOwed =
+            Math.mulDiv(userLiquidityPosition.liquidityPoints, token2Liquidity, totalLiquidityPoints);
 
         // Burn the NFT
         burn(tokenId);
@@ -236,11 +238,12 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
 
         // Give the user their earned fees
         FeeVault.withdrawFeeEntitlement(
-            liquidityEntitlement,
+            userLiquidityPosition.liquidityPoints,
             userLiquidityPosition.feeGrowthEntryPointFirstToken,
             userLiquidityPosition.feeGrowthEntryPointSecondToken,
             feeGrowthTrackerToken1,
             feeGrowthTrackerToken2,
+            totalLiquidityPoints,
             msg.sender
         );
     }
@@ -269,6 +272,21 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         }
     }
 
+    function _calcAmountFromTokenRequired(uint256 fromTokenLiquidity, uint256 toTokenLiquidity, uint256 amountDesired)
+        public
+        pure
+        returns (uint256)
+    {
+        uint256 numerator = (fromTokenLiquidity * amountDesired) * BPS_DENOMINATOR;
+        uint256 denominator = (toTokenLiquidity - amountDesired) * (BPS_DENOMINATOR - FEE_BPS);
+
+        uint256 result = Math.ceilDiv(numerator, denominator);
+        if (numerator % denominator != 0) {
+            return result + 1;
+        }
+        return result;
+    }
+
     function swap(address from, address to, uint256 amountDesired) public {
         (
             IERC20 fromToken,
@@ -280,28 +298,30 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
         ) = determineSwapDirection(from, to);
         // Check that pool has enough of the token we want to swap
         _checkBalance(toToken, amountDesired, address(this));
-        require(fromTokenLiquidity > amountDesired, "Pool does not have enough of that token");
+        require(toTokenLiquidity > amountDesired, "Pool does not have enough of that token");
 
         // Calculating the amount of the "from" token we need from the user
         // This takes into account the current liquidity in the pool
-        uint256 amountFromTokenRequired = (fromTokenLiquidity * amountDesired) / (toTokenLiquidity - amountDesired);
+        uint256 amountFromTokenRequired =
+            _calcAmountFromTokenRequired(fromTokenLiquidity, toTokenLiquidity, amountDesired);
         uint256 fee = calcFees(amountFromTokenRequired);
-        uint256 totalFromTokenNeededFromUser = amountFromTokenRequired + fee;
+        uint256 fromTokenAmountMinusFee = amountFromTokenRequired - fee;
 
         // Check that user has allowed enough of their balance to be used
-        _checkAllowance(fromToken, totalFromTokenNeededFromUser, msg.sender);
+        _checkAllowance(fromToken, amountFromTokenRequired, msg.sender);
         // Check that user has enough balance
-        _checkBalance(fromToken, totalFromTokenNeededFromUser, msg.sender);
+        _checkBalance(fromToken, amountFromTokenRequired, msg.sender);
 
         // Sanity check for slippage
         uint256 currentFromTokenPrice =
             _calcPrice(toTokenLiquidity, fromTokenLiquidity, toTokenDecimals, fromTokenDecimals);
         uint256 userAssumedFromTokenPrice = _calcPrice(
             amountDesired,
-            amountFromTokenRequired, // Excluding fees from slippage calc
+            fromTokenAmountMinusFee, // Excluding fees from slippage calc
             toTokenDecimals,
             fromTokenDecimals
         );
+
         uint256 slippage = calcSlippage(currentFromTokenPrice, userAssumedFromTokenPrice);
         if (slippage > MAX_SLIPPAGE_BPS) {
             revert SlippageTooHigh();
@@ -312,15 +332,14 @@ contract CoopySwapLiquidityPool is ERC721Burnable {
             token1Liquidity += amountFromTokenRequired;
             token2Liquidity -= amountDesired;
             // Fees always taken from "from" token
-            feeGrowthTrackerToken1 += fee / totalLiquidityPoints;
+            feeGrowthTrackerToken1 += Math.mulDiv(fee, 1 * 10 ** (SCALE_ZEROES), totalLiquidityPoints);
         } else {
             token2Liquidity += amountFromTokenRequired;
             token1Liquidity -= amountDesired;
-            feeGrowthTrackerToken2 += fee / totalLiquidityPoints;
+            feeGrowthTrackerToken2 += Math.mulDiv(fee, 1 * 10 ** (SCALE_ZEROES), totalLiquidityPoints);
         }
-
         // Execute swap
-        _performTransfer(msg.sender, address(this), fromToken, totalFromTokenNeededFromUser);
+        _performTransfer(msg.sender, address(this), fromToken, amountFromTokenRequired);
         _performTransfer(address(this), msg.sender, toToken, amountDesired);
 
         // Send fees to fee contract
